@@ -1,0 +1,6 @@
+{
+  "name": "KAEVY STUDIO - Roblox Development Platform",
+  "description": "Premium Roblox Development Platform prototype featuring public marketplace, developer directory, Share Asset library, client portal, developer workspace, escrow checkout, and admin console.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

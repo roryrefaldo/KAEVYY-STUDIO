@@ -1,0 +1,26 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: kaevy-studio
+  labels:
+    cloud.googleapis.com/location: asia-southeast1
+spec:
+  template:
+    spec:
+      containers:
+        - image: gcr.io/kaevy-studio-cloud/app:latest
+          ports:
+            - containerPort: 3000
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: "1.0"
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: CORS_ORIGIN
+              value: "https://kaevy.studio"
