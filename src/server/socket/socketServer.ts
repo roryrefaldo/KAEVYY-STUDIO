@@ -22,9 +22,14 @@ let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents, InterServerEv
 export function initSocketServer(httpServer: HttpServer): SocketIOServer<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData> {
   io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
     cors: {
-      origin: '*',
-      credentials: true,
-      methods: ['GET', 'POST'],
+ origin: (origin, callback) => {
+ const allowed = (process.env.CORS_ORIGIN || '').split(',').map((o) => o.trim()).filter(Boolean);
+ if (!origin || allowed.includes(origin)) return callback(null, true);
+ return callback(null, false);
+ },
+ credentials: true,
+ methods: ['GET', 'POST'],
+ },
     },
     pingInterval: 25000,
     pingTimeout: 20000,
