@@ -3,9 +3,11 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { Response } from 'express';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'kaevy_production_jwt_secret_key_2026';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'kaevy_production_jwt_refresh_secret_key_2026';
-
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET)) {
+  throw new Error('FATAL: JWT_SECRET dan JWT_REFRESH_SECRET wajib di-set di production.');
+}
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-do-not-use-in-prod';
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'dev-only-refresh-do-not-use-in-prod';
 export interface JwtPayload {
   userId: string;
   email: string;
