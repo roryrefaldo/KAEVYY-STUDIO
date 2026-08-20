@@ -19,7 +19,8 @@ export async function authMiddleware(req: AuthenticatedRequest, res: Response, n
     let token: string | undefined = undefined;
 
     // 1. Try Bearer header or x-user-id
-    const authHeader = req.headers.authorization || (req.headers['x-user-id'] as string);
+     const allowLegacyAuth = process.env.ALLOW_LEGACY_AUTH === 'true';
+   const authHeader = req.headers.authorization || (allowLegacyAuth ? (req.headers['x-user-id'] as string) : undefined);
     if (authHeader) {
       token = authHeader.replace(/^Bearer\s+/i, '').trim();
     }
@@ -38,8 +39,8 @@ export async function authMiddleware(req: AuthenticatedRequest, res: Response, n
     let userId = jwtPayload?.userId;
 
     // 4. Fallback for legacy format "kaevy_token_<userId>" or direct UUID
-    if (!userId) {
-      if (token.startsWith('kaevy_token_')) {
+    if (!userId && allowLegacyAuth) {
+        if (token.startsWith('kaevy_token_')) {
         userId = token.replace('kaevy_token_', '');
       } else {
         userId = token;
