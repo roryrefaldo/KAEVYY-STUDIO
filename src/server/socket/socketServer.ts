@@ -30,7 +30,6 @@ export function initSocketServer(httpServer: HttpServer): SocketIOServer<ClientT
  credentials: true,
  methods: ['GET', 'POST'],
  },
-    },
     pingInterval: 25000,
     pingTimeout: 20000,
     transports: ['websocket', 'polling'],
