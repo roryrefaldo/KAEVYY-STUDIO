@@ -48,7 +48,8 @@ export async function authenticateSocket(
     }
 
     // Fallback for mock token format kaevy_token_<userId> or direct mock match
-    if (!user && typeof token === 'string' && token.startsWith('kaevy_token_')) {
+     const allowLegacyAuth = process.env.ALLOW_LEGACY_AUTH === 'true';
+     if (!user && allowLegacyAuth && typeof token === 'string' && token.startsWith('kaevy_token_')) {
       const userId = token.replace('kaevy_token_', '');
       const dbUser = await authRepository.findUserById(userId);
       if (dbUser) {
@@ -69,7 +70,7 @@ export async function authenticateSocket(
     }
 
     // Direct mock match if id equals token
-    if (!user) {
+    if (!user && allowLegacyAuth) {
       const mockUser = mockData.users.find((u) => u.id === token || u.email === token);
       if (mockUser) {
         const userRoles = mockData.userRoles.filter((ur) => ur.userId === mockUser.id);
