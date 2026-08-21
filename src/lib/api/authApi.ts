@@ -6,6 +6,8 @@ export const authApi = {
     email: string;
     displayName: string;
     password?: string;
+    companyName?: string;
+    discordUsername?: string;
   }): Promise<ApiResponse<any>> {
     return fetchJson('/auth/register/client', {
       method: 'POST',
@@ -19,6 +21,7 @@ export const authApi = {
     specialization: string;
     bio?: string;
     password?: string;
+    skills?: string[];
   }): Promise<ApiResponse<any>> {
     return fetchJson('/auth/register/developer', {
       method: 'POST',
@@ -26,7 +29,7 @@ export const authApi = {
     });
   },
 
-  async login(credentials: { email: string; password?: string }): Promise<ApiResponse<any>> {
+  async login(credentials: { email: string; password?: string; rememberMe?: boolean }): Promise<ApiResponse<any>> {
     return fetchJson('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
