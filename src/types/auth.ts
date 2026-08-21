@@ -71,13 +71,15 @@ export interface ClientRegisterData {
   password?: string;
   discord?: string;
   whatsapp?: string;
+  companyName?: string;
+  discordUsername?: string;
 }
 
 export interface DeveloperRegisterData {
   displayName: string;
   email: string;
   password?: string;
-  discord: string;
+  discord?: string;
   specialization: string;
   skills: string[];
   portfolioUrl?: string;
