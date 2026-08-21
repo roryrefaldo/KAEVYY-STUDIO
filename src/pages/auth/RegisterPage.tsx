@@ -24,8 +24,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onNavigate }) => {
     setError(null);
     setSuccessMsg(null);
 
-    if (!email || !displayName) {
-      setError('Email dan Nama Tampilan wajib diisi.');
+    if (!email || !displayName || !password) {
+      setError('Email, Nama Tampilan, dan Password wajib diisi.');
       return;
     }
 
