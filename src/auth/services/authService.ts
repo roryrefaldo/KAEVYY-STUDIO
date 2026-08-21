@@ -4,6 +4,7 @@ import {
   ClientRegisterData,
   DeveloperRegisterData,
 } from '../../types/auth';
+import { authApi } from '../../lib/api/authApi';
 
 export interface JwtPayload {
   sub: string;
@@ -13,7 +14,8 @@ export interface JwtPayload {
   exp: number;
 }
 
-// Pre-configured Demo Users for Development / Prototype Adapter
+// ⚠️ DEMO_USERS hanya untuk preview UI via switchDemoUser.
+// User demo TIDAK memiliki sesi backend — panggilan API akan dianggap anonim.
 export const DEMO_USERS: Record<string, User> = {
   client: {
     id: 'usr-client-001',
@@ -103,20 +105,53 @@ export const DEMO_USERS: Record<string, User> = {
 };
 
 /**
- * Core Authentication Service handling Login, Register, Session & JWT operations.
+ * Konversi user dari API (snake shape server) ke tipe User frontend.
+ * Data role & profil diambil dari /auth/me (req.user di server).
+ */
+function mapApiUserToFrontend(apiUser: any, me?: any): User {
+  const roleList: string[] = Array.isArray(me?.roles) ? me.roles : [];
+  const role: User['role'] = roleList.includes('ADMIN')
+    ? 'ADMIN'
+    : roleList.includes('DEVELOPER')
+    ? 'DEVELOPER'
+    : 'CLIENT';
+
+  const developerTier = me?.developerTier as 'VERIFIED' | 'ELITE' | null | undefined;
+  const baseStatus = (apiUser?.status as User['status']) || 'ACTIVE';
+  const status: User['status'] = role === 'DEVELOPER' && developerTier ? developerTier : baseStatus;
+  const email = apiUser?.email || me?.email || '';
+
+  return {
+    id: apiUser?.id || me?.id || '',
+    email,
+    displayName: apiUser?.displayName || me?.displayName || 'Pengguna',
+    role,
+    status,
+    avatar:
+      apiUser?.avatarUrl ||
+      `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(email || 'user')}`,
+    language: 'id',
+    currency: 'IDR',
+    createdAt: apiUser?.createdAt ? String(apiUser.createdAt) : new Date().toISOString(),
+  };
+}
+
+/**
+ * Core Authentication Service — terhubung ke REST API backend.
+ * Token JWT disimpan di localStorage dan juga dikirim server via httpOnly cookie.
  */
 export class AuthService {
   private static STORAGE_KEY = 'kaevy_auth_user_v1';
   private static TOKEN_KEY = 'kaevy_auth_token_v1';
+  private static REFRESH_KEY = 'kaevy_auth_refresh_v1';
 
-  // --- Session Management ---
+  // --- Session Storage ---
 
   public static getStoredUser(): User | null {
     try {
       if (typeof window === 'undefined') return null;
       const json = localStorage.getItem(this.STORAGE_KEY);
-      if (!json) return null;
-      return JSON.parse(json);
+      return json ? JSON.parse(json) : null;
     } catch {
       return null;
     }
@@ -125,12 +160,9 @@ export class AuthService {
   public static setStoredUser(user: User | null) {
     if (typeof window === 'undefined') return;
     if (!user) {
-      localStorage.removeItem(this.STORAGE_KEY);
-      localStorage.removeItem(this.TOKEN_KEY);
+      this.clearSession();
     } else {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(user));
-      const token = this.generateToken(user);
-      localStorage.setItem(this.TOKEN_KEY, token);
     }
   }
 
@@ -143,142 +175,145 @@ export class AuthService {
     }
   }
 
-  // --- JWT / Token Helpers ---
-
-  public static generateToken(user: User): string {
-    return `kaevy_token_${user.id}`;
+  public static getStoredRefreshToken(): string | null {
+    try {
+      if (typeof window === 'undefined') return null;
+      return localStorage.getItem(this.REFRESH_KEY);
+    } catch {
+      return null;
+    }
   }
 
-  public static parseToken(token: string): JwtPayload | null {
-    if (!token) return null;
-    const rawId = token.startsWith('kaevy_token_') ? token.replace('kaevy_token_', '') : token;
-    return {
-      sub: rawId,
-      email: '',
-      role: 'CLIENT',
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 86400 * 30, // 30 days
-    };
+  public static setStoredTokens(accessToken: string, refreshToken?: string) {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(this.TOKEN_KEY, accessToken);
+    if (refreshToken) {
+      localStorage.setItem(this.REFRESH_KEY, refreshToken);
+    }
   }
 
-  // --- Login Operations ---
+  public static clearSession() {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(this.STORAGE_KEY);
+    localStorage.removeItem(this.TOKEN_KEY);
+    localStorage.removeItem(this.REFRESH_KEY);
+  }
 
-  public static async loginWithPassword(credentials: LoginCredentials): Promise<User> {
-    await new Promise((res) => setTimeout(res, 400));
-    const emailLower = credentials.email.trim().toLowerCase();
+  // --- Identity Builder ---
 
-    const foundDemo = Object.values(DEMO_USERS).find((u) => u.email.toLowerCase() === emailLower);
-    if (foundDemo) {
-      this.setStoredUser(foundDemo);
-      return foundDemo;
+  private static async buildFrontendUser(
+    apiUser: any,
+    extras?: { clientProfile?: any; developerProfile?: any }
+  ): Promise<User> {
+    let me: any = null;
+    try {
+      const meRes = await authApi.getMe();
+      if (meRes?.success) me = meRes.data;
+    } catch {
+      // Biarkan null — user tetap dibangun dari data minimal login response
     }
 
-    const newUser: User = {
-      id: `usr-${Date.now()}`,
-      email: credentials.email,
-      displayName: credentials.email.split('@')[0],
-      role: 'CLIENT',
-      status: 'ACTIVE',
-      avatar: `https://api.dicebear.com/7.x/identicon/svg?seed=${credentials.email}`,
-      language: 'id',
-      currency: 'IDR',
-      createdAt: new Date().toISOString(),
-    };
+    const user = mapApiUserToFrontend(apiUser, me);
 
-    this.setStoredUser(newUser);
-    return newUser;
+    if (extras?.clientProfile || me?.clientProfileId) {
+      user.clientProfile = {
+        companyName: extras?.clientProfile?.companyName ?? undefined,
+        discord: extras?.clientProfile?.discordUsername ?? undefined,
+      };
+    }
+
+    if (extras?.developerProfile || me?.developerProfileId) {
+      const dp = extras?.developerProfile;
+      user.developerProfile = {
+        specialization: dp?.specialization || '',
+        skills: Array.isArray(dp?.skills) ? dp.skills : [],
+        bio: dp?.bio ?? undefined,
+        activeQueueCount: 0,
+        maxQueueCapacity: dp?.activeProjectCapacity ?? 3,
+        verificationStatus: dp?.verificationStatus ?? ((me?.developerTier as any) || 'PENDING'),
+      };
+      // Developer baru yang masih PENDING jangan ditandai terverifikasi
+      if (dp?.verificationStatus === 'PENDING') {
+        user.status = 'PENDING_VERIFICATION';
+      }
+    }
+
+    return user;
+  }
+
+  // --- Login Operations (API asli) ---
+
+  public static async loginWithPassword(credentials: LoginCredentials): Promise<User> {
+    const res = await authApi.login({
+      email: credentials.email,
+      password: credentials.password,
+      rememberMe: (credentials as any).rememberMe,
+    });
+    if (!res?.success || !res.data?.token) {
+      throw new Error((res as any)?.error?.message || 'Login gagal. Periksa email dan password Anda.');
+    }
+    this.setStoredTokens(res.data.token, res.data.refreshToken);
+    const user = await this.buildFrontendUser(res.data.user);
+    this.setStoredUser(user);
+    return user;
   }
 
   public static async loginWithGoogle(): Promise<User> {
-    await new Promise((res) => setTimeout(res, 500));
-    const googleUser: User = {
-      id: `usr-google-${Date.now()}`,
-      email: 'user.google@gmail.com',
-      displayName: 'Google User',
-      role: 'CLIENT',
-      status: 'ACTIVE',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-      language: 'id',
-      currency: 'IDR',
-      createdAt: new Date().toISOString(),
-    };
-    this.setStoredUser(googleUser);
-    return googleUser;
+    throw new Error('Login via Google belum tersedia. Silakan masuk dengan email & password.');
   }
 
   public static async loginWithDiscord(): Promise<User> {
-    await new Promise((res) => setTimeout(res, 500));
-    const discordUser: User = {
-      id: `usr-discord-${Date.now()}`,
-      email: 'discord.creator@kaevy.studio',
-      displayName: 'RobloxCreator_Discord',
-      role: 'CLIENT',
-      status: 'ACTIVE',
-      avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150',
-      language: 'id',
-      currency: 'IDR',
-      createdAt: new Date().toISOString(),
-      clientProfile: {
-        discord: 'robloxcreator#9999',
-      },
-    };
-    this.setStoredUser(discordUser);
-    return discordUser;
+    throw new Error('Login via Discord belum tersedia. Silakan masuk dengan email & password.');
   }
 
-  // --- Registration Operations ---
+  // --- Registration Operations (API asli) ---
 
   public static async registerClient(data: ClientRegisterData): Promise<User> {
-    await new Promise((res) => setTimeout(res, 400));
-    const newClient: User = {
-      id: `usr-client-${Date.now()}`,
+    const res = await authApi.registerClient({
       email: data.email,
-      displayName: data.displayName || data.email.split('@')[0],
-      role: 'CLIENT',
-      status: 'ACTIVE',
-      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.email}`,
-      language: 'id',
-      currency: 'IDR',
-      createdAt: new Date().toISOString(),
-      clientProfile: {
-        discord: data.discord,
-        whatsapp: data.whatsapp,
-      },
-    };
-    this.setStoredUser(newClient);
-    return newClient;
+      displayName: data.displayName,
+      password: data.password,
+      companyName: (data as any).companyName,
+      discordUsername: (data as any).discordUsername,
+    });
+    if (!res?.success || !res.data?.token) {
+      throw new Error((res as any)?.error?.message || 'Registrasi gagal. Silakan coba lagi.');
+    }
+    this.setStoredTokens(res.data.token, res.data.refreshToken);
+    const user = await this.buildFrontendUser(res.data.user, {
+      clientProfile: res.data.clientProfile,
+    });
+    this.setStoredUser(user);
+    return user;
   }
 
   public static async registerDeveloper(data: DeveloperRegisterData): Promise<User> {
-    await new Promise((res) => setTimeout(res, 400));
-    const newDev: User = {
-      id: `usr-dev-${Date.now()}`,
+    const res = await authApi.registerDeveloper({
       email: data.email,
-      displayName: data.displayName || data.email.split('@')[0],
-      role: 'DEVELOPER',
-      status: 'PENDING_VERIFICATION',
-      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${data.email}`,
-      language: 'id',
-      currency: 'IDR',
-      createdAt: new Date().toISOString(),
-      developerProfile: {
-        specialization: data.specialization || 'Luau / Lua Scripting',
-        skills: data.skills || ['Luau'],
-        portfolioUrl: data.portfolioUrl,
-        bio: data.bio || 'Roblox Studio Developer',
-        activeQueueCount: 0,
-        maxQueueCapacity: 3,
-        verificationStatus: 'PENDING',
-        submittedAt: new Date().toLocaleString('id-ID'),
-      },
-    };
-    this.setStoredUser(newDev);
-    return newDev;
+      displayName: data.displayName,
+      password: data.password,
+      specialization: data.specialization,
+      bio: data.bio,
+      skills: data.skills,
+    });
+    if (!res?.success || !res.data?.token) {
+      throw new Error((res as any)?.error?.message || 'Registrasi developer gagal. Silakan coba lagi.');
+    }
+    this.setStoredTokens(res.data.token, res.data.refreshToken);
+    const user = await this.buildFrontendUser(res.data.user, {
+      developerProfile: res.data.developerProfile,
+    });
+    this.setStoredUser(user);
+    return user;
   }
 
-  // --- Session Logout ---
+  // --- Logout ---
 
   public static logout(): void {
-    this.setStoredUser(null);
+    try {
+      void authApi.logout().catch(() => undefined);
+    } finally {
+      this.clearSession();
+    }
   }
 }
