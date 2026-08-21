@@ -41,6 +41,42 @@ export async function checkHealth(): Promise<boolean> {
 // In-flight GET request deduplication cache to prevent duplicate parallel requests
 const inFlightRequests = new Map<string, Promise<any>>();
 
+/** Coba perpanjang sesi lewat refresh token. Dipanggil sekali saat dapat 401. */
+async function attemptRefreshToken(): Promise<boolean> {
+  const refreshToken = AuthService.getStoredRefreshToken();
+  if (!refreshToken) return false;
+  try {
+    const res = await fetch(`${getBaseUrl()}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    const body = await res.json().catch(() => null);
+    const newToken = body?.data?.token;
+    if (!res.ok || !newToken) return false;
+    AuthService.setStoredTokens(newToken, body?.data?.refreshToken);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildHeaders(options?: RequestInit): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options?.headers as Record<string, string>) || {}),
+  };
+
+  // Tempel JWT asli kalau user sudah login. Tidak ada lagi token demo.
+  if (!headers['Authorization'] && !headers['authorization']) {
+    const token = AuthService.getStoredToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+  return headers;
+}
+
 export async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
   const method = (options?.method || 'GET').toUpperCase();
   const isGet = method === 'GET';
@@ -50,37 +86,33 @@ export async function fetchJson<T>(endpoint: string, options?: RequestInit): Pro
     return inFlightRequests.get(dedupeKey) as Promise<ApiResponse<T>>;
   }
 
+  const doFetch = async (): Promise<Response> => {
+    try {
+      return await fetch(`${getBaseUrl()}${endpoint}`, {
+        ...options,
+        headers: buildHeaders(options),
+      });
+    } catch (networkErr: any) {
+      throw new ApiError(
+        networkErr?.message || 'Gagal terhubung ke backend server.',
+        0,
+        'NETWORK_ERROR'
+      );
+    }
+  };
+
   const requestPromise = (async (): Promise<ApiResponse<T>> => {
     try {
-      const baseUrl = getBaseUrl();
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...((options?.headers as Record<string, string>) || {}),
-      };
+      let res = await doFetch();
 
-      // Attach Authorization header if not explicitly provided
-      if (!headers['Authorization'] && !headers['authorization']) {
-        const storedUser = AuthService.getStoredUser();
-        if (storedUser?.id) {
-          headers['Authorization'] = `Bearer kaevy_token_${storedUser.id}`;
+      // Access token kedaluwarsa → refresh sekali, lalu ulangi request
+      if (res.status === 401 && AuthService.getStoredRefreshToken()) {
+        const refreshed = await attemptRefreshToken();
+        if (refreshed) {
+          res = await doFetch();
         } else {
-          // Fallback default demo client token
-          headers['Authorization'] = `Bearer kaevy_token_50000000-0000-0000-0000-000000000002`;
+          AuthService.clearSession();
         }
-      }
-
-      let res: Response;
-      try {
-        res = await fetch(`${baseUrl}${endpoint}`, {
-          ...options,
-          headers,
-        });
-      } catch (networkErr: any) {
-        throw new ApiError(
-          networkErr?.message || 'Gagal terhubung ke backend server.',
-          0,
-          'NETWORK_ERROR'
-        );
       }
 
       const body = await res.json().catch(() => null);
@@ -142,4 +174,3 @@ export function buildPaginationMeta(
     totalPages: Math.ceil(total / (limit || 1)) || 1,
   };
 }
-
