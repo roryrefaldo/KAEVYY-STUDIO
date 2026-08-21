@@ -15,11 +15,12 @@ export function validateRegisterClientDTO(data: any): RegisterClientDTO {
   if (!data.displayName || typeof data.displayName !== 'string' || data.displayName.trim().length === 0) {
     throw new ValidationError('Nama tampilan wajib diisi.');
   }
-  if (data.password) {
-    const strength = validatePasswordStrength(data.password);
-    if (!strength.isValid) {
-      throw new ValidationError(strength.message || 'Password tidak memenuhi kriteria keamanan.');
-    }
+  if (!data.password || typeof data.password !== 'string' || data.password.length === 0) {
+    throw new ValidationError('Password wajib diisi.');
+  }
+  const strength = validatePasswordStrength(data.password);
+  if (!strength.isValid) {
+    throw new ValidationError(strength.message || 'Password tidak memenuhi kriteria keamanan.');
   }
   return {
     email: data.email.trim().toLowerCase(),
@@ -37,11 +38,12 @@ export function validateRegisterDeveloperDTO(data: any): RegisterDeveloperDTO {
   if (!data.displayName || typeof data.displayName !== 'string' || data.displayName.trim().length === 0) {
     throw new ValidationError('Nama tampilan wajib diisi.');
   }
-  if (data.password) {
-    const strength = validatePasswordStrength(data.password);
-    if (!strength.isValid) {
-      throw new ValidationError(strength.message || 'Password tidak memenuhi kriteria keamanan.');
-    }
+  if (!data.password || typeof data.password !== 'string' || data.password.length === 0) {
+    throw new ValidationError('Password wajib diisi.');
+  }
+  const strength = validatePasswordStrength(data.password);
+  if (!strength.isValid) {
+    throw new ValidationError(strength.message || 'Password tidak memenuhi kriteria keamanan.');
   }
   return {
     email: data.email.trim().toLowerCase(),
