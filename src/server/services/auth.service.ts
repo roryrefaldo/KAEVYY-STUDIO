@@ -26,7 +26,8 @@ import {
   NotFoundError,
 } from '../errors/index.js';
 import { db } from '../../db/index.js';
-import { clientProfiles, developerProfiles } from '../../db/schema/index.js';
+import { clientProfiles, developerProfiles, userRoles, roles } from '../../db/schema/index.js';
+import { eq } from 'drizzle-orm';
 import { safeDbExecute } from '../../db/mockDb.js';
 import { mockData } from '../../db/mockStore.js';
 
@@ -215,8 +216,13 @@ export async function login(dto: LoginDTO, reqContext: { userAgent?: string; ipA
   }
 
   // Check password if user has passwordHash set
-  const pwdHash = (user as any).passwordHash;
-  if (pwdHash && dto.password) {
+    const pwdHash = (user as any).passwordHash;
+    if (!pwdHash) {
+      throw new InvalidCredentialsError('Akun ini belum memiliki password. Atur password lewat fitur "Lupa Password".');
+    }
+    if (!dto.password) {
+      throw new InvalidCredentialsError('Email atau password tidak valid.');
+    }
     const isPasswordMatch = await comparePassword(dto.password, pwdHash);
     if (!isPasswordMatch) {
       await authRepository.recordLoginAttempt({
@@ -228,15 +234,18 @@ export async function login(dto: LoginDTO, reqContext: { userAgent?: string; ipA
       });
       throw new InvalidCredentialsError('Email atau password tidak valid.');
     }
-  }
 
   // Fetch roles
   let rolesList: string[] = ['CLIENT'];
-  await safeDbExecute(
-    async () => {
-      const userRoles = await authRepository.findUserById(user.id);
-      // Fetch role codes
-    },
+    await safeDbExecute(
+      async () => {
+        const roleRows = await db
+          .select({ code: roles.code })
+          .from(userRoles)
+          .innerJoin(roles, eq(userRoles.roleId, roles.id))
+          .where(eq(userRoles.userId, user.id));
+        rolesList = roleRows.map((r) => r.code as string);
+      },
     async () => {
       const uRoles = mockData.userRoles.filter((ur) => ur.userId === user.id);
       rolesList = uRoles
@@ -471,6 +480,11 @@ export async function revokeSession(userId: string, sessionId: string) {
 }
 
 export async function handleOAuthLogin(dto: OAuthLoginDTO, reqContext: { userAgent?: string; ipAddress?: string }) {
+  // Keamanan: stub ini belum memverifikasi token ke provider (Google/Discord).
+  // Dimatikan default; hanya aktif untuk demo jika ALLOW_OAUTH_STUB=true.
+  if (process.env.ALLOW_OAUTH_STUB !== 'true') {
+    throw new ValidationError('Login via Google/Discord belum tersedia. Gunakan email & password.');
+  }
   // Check if OAuth account exists
   let oauthAcc = await authRepository.findOAuthAccount(dto.provider, dto.providerAccountId);
   let user = null;
