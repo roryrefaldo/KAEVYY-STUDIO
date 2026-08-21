@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './useAuth';
+import { AuthService } from '../services/authService';
 import { ClientToServerEvents, ServerToClientEvents } from '../server/socket/socketEvents';
 
 let globalSocket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
@@ -25,7 +26,11 @@ export function useSocket() {
       return;
     }
 
-    const token = (user as any).token || `kaevy_token_${user.id}`;
+       const token = AuthService.getStoredToken();
+    if (!token) {
+      setIsConnected(false);
+      return;
+    }
 
     if (!globalSocket || currentToken !== token) {
       if (globalSocket) {
